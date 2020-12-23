@@ -8,7 +8,7 @@ async fn main() {
         "eb5bbf7c-753935db-220bf939-735de",
         "api.huobi.pro"
     );
-    let resp = api.get_symbols().await;
+    let resp = api.get_symbols().await.unwrap();
     let text = resp.text().await.unwrap();
     println!("{}", text);
 }

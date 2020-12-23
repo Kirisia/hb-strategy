@@ -21,7 +21,7 @@ pub struct Strategy {
     config: StrategyConfig,
     hold_amount: f64, // 持仓金额
     average_amount: f64, // 持仓均价
-    cover_num: u8, // 补仓次数
+    // cover_num: u8, // 补仓次数
     hold_num: f64, // 持仓数量
     current_amount: f64, // 当前价格
     increase_amp: f64, // 涨幅
@@ -33,7 +33,6 @@ impl Strategy {
             config,
             hold_amount: 0.0,
             average_amount: 0.0,
-            cover_num: 0,
             hold_num: 0.0,
             current_amount: 0.0,
             increase_amp: 0.0,
@@ -69,24 +68,31 @@ impl Strategy {
         self.current_amount = self.get_current_price().await;
         self.hold_num = self.hold_amount / self.current_amount;
 
-        let (mut profit, mut high_profit, mut cover, mut low_cover )
-            = (false, 0.0, false, f64::MAX);
+        let (mut cover_num, mut profit, mut high_profit, mut cover, mut low_cover )
+            = (0u8, false, 0.0, false, f64::MAX);
         loop {
             self.current_amount = self.get_current_price().await;
             self.average_amount = self.hold_amount / self.hold_num;
-            info!(
-                "\n持仓金额 = {}, 持仓均价 = {}, 补仓次数 = {} \n持仓数量 = {}, 当前价格 = {}",
-                self.hold_amount, self.average_amount, self.cover_num, self.hold_num, self.current_amount
-            );
             // 判断是否盈利
-            if (self.current_amount - self.average_amount) / self.average_amount > config.spr {
-                if self.current_amount > high_profit {
-                    high_profit = self.current_amount;
+            // 盈利比例
+            let profit_per = (self.current_amount - self.average_amount) / self.average_amount;
+            info!(
+                "\n持仓金额 = {}, 持仓均价 = {}, 补仓次数 = {} \n持仓数量 = {}, 当前价格 = {}, 盈利比例 = {}",
+                self.hold_amount, self.average_amount, cover_num,
+                self.hold_num, self.current_amount, profit_per
+            );
+
+            if profit_per > config.spr {
+                if profit_per > high_profit {
+                    high_profit = profit_per;
                 }
                 profit = true;
+                cover = false;
+            } else {
+                profit = false;
             }
             if profit {
-                if (high_profit - self.current_amount) / self.current_amount > config.profit_cb {
+                if high_profit - profit_per > config.profit_cb {
                     // 盈利策略结束
                     let profit_amount = self.current_amount * self.hold_num - self.hold_amount;
                     profit_log(format!("盈利 = {}", profit_amount));
@@ -104,12 +110,13 @@ impl Strategy {
             if cover {
                 if (self.current_amount - low_cover) / low_cover > config.cover_cb {
                     // 开始补仓
-                    if self.cover_num < config.double_cast {
+                    if cover_num < config.double_cast {
                         info!("开始补仓！");
-                        self.cover_num += 1;
+                        cover_num += 1;
                         let buy_in = 2.0 * self.hold_amount;
                         self.hold_amount += buy_in;
                         self.hold_num += buy_in / self.current_amount;
+                        cover = false;
                     }
                 }
             }

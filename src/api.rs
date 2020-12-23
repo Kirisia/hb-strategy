@@ -1,21 +1,26 @@
 use std::collections::HashMap;
 use hmac::{Hmac, NewMac, Mac};
 use sha2::Sha256;
-use reqwest::Response;
+use reqwest::{Response, Client};
 use std::time::Instant;
 
 pub struct HbApi {
     access_key: String,
     secret_key: String,
     host: String,
+    client: Client
 }
+
+type ResultResponse = Result<Response, reqwest::Error>;
 
 impl HbApi {
     pub fn new<S: Into<String>>(access_key: S, secret_key: S, host: S) -> Self {
+        let client = reqwest::Client::new();
         Self {
             access_key: access_key.into(),
             secret_key: secret_key.into(),
             host: host.into(),
+            client,
         }
     }
 
@@ -57,7 +62,8 @@ impl HbApi {
         base64_e
     }
 
-    pub async fn http_get<'a, S>(&self, req_url: S, param: &'a HashMap<&str, String>) -> Response
+    pub async fn http_get<'a, S>(&self, req_url: S, param: &'a HashMap<&str, String>)
+        -> ResultResponse
     where S: Into<String>
     {
         let param = self.url_param(param);
@@ -68,11 +74,28 @@ impl HbApi {
             self.host, req_url, param, self.hmac_base64_encode(payload)
         );
         println!("{}", url);
-        let resp = reqwest::get(&url).await.unwrap();
-        resp
+        reqwest::get(&url).await
     }
 
-    pub async fn get_symbols(&self) -> Response {
+    pub async fn http_post<'a, S>(&self, req_url: S, param: &'a HashMap<&str, String>)
+        -> ResultResponse
+    where S: Into<String>
+    {
+        let param = self.url_param(&HashMap::new());
+        let req_url = req_url.into();
+        let payload = format!("POST\n{}\n{}\n{}", self.host, req_url, &param[..param.len() - 1]);
+        let url = format!(
+            "https://{}{}?{}Signature={}",
+            self.host, req_url, param, self.hmac_base64_encode(payload)
+        );
+        println!("{}", url);
+        self.client.post(&url)
+            .json(&param)
+            .send()
+            .await
+    }
+
+    pub async fn get_symbols(&self) -> ResultResponse {
         self.http_get("/v1/common/symbols", &HashMap::new()).await
     }
 }

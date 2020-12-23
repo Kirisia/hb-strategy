@@ -9,7 +9,7 @@ async fn main() -> Result<(), Error> {
     std::env::set_var("RUST_LOG", "info");
     setup_logger().unwrap();
     let (limit, dcl, tpr, profit_cb, decline, decline_cb) =
-        (300.0, 7, 0.003, 0.003, 0.01, 0.001);
+        (300.0, 7, 0.003, 0.001, 0.003, 0.001);
     let mut strategy = Strategy::new(StrategyConfig {
         first_amount: limit,
         double_cast: dcl,
