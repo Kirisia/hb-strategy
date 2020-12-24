@@ -26,6 +26,9 @@ encoding_rs = "0.8"
 base64 = "0.13"
 urlencoding = "1.1"
 toml = "0.5"
+rand = "0.8"
+
+
 [target.'cfg(linux)'.dependencies]
 #cc = { version = "1.0", features = ["parallel"] }
 openssl = { version = "0.10", features = ["vendored"] }

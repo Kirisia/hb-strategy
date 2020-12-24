@@ -14,7 +14,7 @@ type ResultResponse = Result<Response, reqwest::Error>;
 
 impl HbApi {
     pub fn new<S: Into<String>>(access_key: S, secret_key: S, host: S) -> Self {
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let client = reqwest::Client::new();
         Self {
             access_key: access_key.into(),
             secret_key: secret_key.into(),
@@ -76,7 +76,7 @@ impl HbApi {
         reqwest::get(&url).await
     }
 
-    pub async fn http_post<'a, S>(&self, req_url: S, param: &'a HashMap<&str, String>)
+    pub async fn http_post<'a, S>(&self, req_url: S, map: &'a HashMap<&str, String>)
         -> ResultResponse
     where S: Into<String>
     {
@@ -88,8 +88,9 @@ impl HbApi {
             self.host, req_url, param, self.hmac_base64_encode(payload)
         );
         println!("{}", url);
+        println!("{}", serde_json::to_string(&map).unwrap());
         self.client.post(&url)
-            .json(&param)
+            .json(&map)
             .send()
             .await
     }
@@ -104,5 +105,13 @@ impl HbApi {
             self.host, currency
         );
         self.client.get(&url).send().await
+    }
+
+    pub async fn get_accounts(&self) -> ResultResponse {
+        self.http_get("/v1/account/accounts", &HashMap::new()).await
+    }
+
+    pub async fn buy_currency(&self, map: &HashMap<&str, String>) -> ResultResponse {
+        self.http_post("/v1/order/orders/place", map).await
     }
 }
