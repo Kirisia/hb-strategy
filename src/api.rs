@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use hmac::{Hmac, NewMac, Mac};
 use sha2::Sha256;
 use reqwest::{Response, Client};
-use std::time::Instant;
 
 pub struct HbApi {
     access_key: String,
@@ -15,7 +14,7 @@ type ResultResponse = Result<Response, reqwest::Error>;
 
 impl HbApi {
     pub fn new<S: Into<String>>(access_key: S, secret_key: S, host: S) -> Self {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
         Self {
             access_key: access_key.into(),
             secret_key: secret_key.into(),
@@ -97,5 +96,13 @@ impl HbApi {
 
     pub async fn get_symbols(&self) -> ResultResponse {
         self.http_get("/v1/common/symbols", &HashMap::new()).await
+    }
+
+    pub async fn get_current_amount(&self, currency: &str) -> ResultResponse {
+        let url = format!(
+            "https://{}/market/history/kline?period=1min&symbol={}usdt&size=1",
+            self.host, currency
+        );
+        self.client.get(&url).send().await
     }
 }

@@ -5,7 +5,8 @@ use log::{info, error};
 use reqwest::Response;
 use std::fs::OpenOptions;
 use std::io::Write;
-use serde_derive::{Deserialize};
+use serde::{Deserialize};
+use crate::api::HbApi;
 
 #[derive(Deserialize, Debug)]
 pub struct StrategyConfig {
@@ -28,6 +29,7 @@ pub struct Strategy {
     hold_num: f64, // 持仓数量
     current_amount: f64, // 当前价格
     increase_amp: f64, // 涨幅
+    api: HbApi,
 }
 
 impl Strategy {
@@ -39,13 +41,14 @@ impl Strategy {
             hold_num: 0.0,
             current_amount: 0.0,
             increase_amp: 0.0,
+            api: HbApi::new("", "", "api.huobi.pro"),
         }
     }
     pub async fn get_current_price(&self) -> f64 {
-        let url = format!("https://api.huobi.pro/market/history/kline?period=1min&symbol={}usdt&size=1", self.config.currency);
-        let mut resp: Option<Response> = None;
+        // let url = format!("https://api.huobi.pro/market/history/kline?period=1min&symbol={}usdt&size=1", self.config.currency);
+        let mut resp: Option<Response>;
         loop {
-            resp = match reqwest::get(&url).await {
+            resp = match self.api.get_current_amount(&self.config.currency).await {
                 Ok(resp) => Some(resp),
                 Err(err) => {
                     error!("{:?}", err);
@@ -60,7 +63,6 @@ impl Strategy {
                     let v = &vc[0];
                     return v.get("close").unwrap().as_f64().unwrap()
                 }
-                resp = None;
             }
         }
     }
@@ -128,11 +130,11 @@ impl Strategy {
         // println!("{}", self.hold_num);
     }
 
-    pub async fn loop_run(&mut self) {
-        loop {
-            self.run();
-        }
-    }
+    // pub async fn loop_run(&mut self) {
+    //     loop {
+    //         self.run();
+    //     }
+    // }
 }
 
 fn profit_log<S: Into<String>>(str: S) {

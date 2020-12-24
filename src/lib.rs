@@ -1,3 +1,7 @@
+#![allow(unused_assignments)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 pub mod strategy;
 pub mod api;
 
