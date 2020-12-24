@@ -3,22 +3,20 @@ use std::time::Instant;
 use hb_buy_strategy::strategy::{Strategy, StrategyConfig};
 use tokio::io::Error;
 use hb_buy_strategy::setup_logger;
+use std::fs::File;
+use std::io::Read;
+use log::{info};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     std::env::set_var("RUST_LOG", "info");
     setup_logger().unwrap();
-    let (limit, dcl, tpr, profit_cb, decline, decline_cb) =
-        (300.0, 7, 0.003, 0.001, 0.003, 0.001);
-    let mut strategy = Strategy::new(StrategyConfig {
-        first_amount: limit,
-        double_cast: dcl,
-        spr: tpr,
-        profit_cb: profit_cb,
-        cover_decline: decline,
-        cover_cb: decline_cb,
-        currency: "eth".into(),
-    });
+    info!("Run!");
+    let mut file = File::open("strategy.toml").expect("打开配置文件失败");
+    let mut toml_str = String::new();
+    file.read_to_string(&mut toml_str).unwrap();
+    let config: StrategyConfig = toml::from_str(toml_str.as_str()).expect("加载配置文件失败");
+    let mut strategy = Strategy::new(config);
     // println!("{}", strategy.get_current_price().await);
     tokio::spawn(async move {
         loop {

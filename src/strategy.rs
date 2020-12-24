@@ -5,7 +5,9 @@ use log::{info, error};
 use reqwest::Response;
 use std::fs::OpenOptions;
 use std::io::Write;
+use serde_derive::{Deserialize};
 
+#[derive(Deserialize, Debug)]
 pub struct StrategyConfig {
     pub first_amount: f64, // 首单买入价格
     pub double_cast: u8, // 倍投上限
@@ -15,6 +17,7 @@ pub struct StrategyConfig {
     pub cover_decline: f64, // 补仓跌幅
     pub cover_cb: f64, // 补仓回调
     pub currency: String, // 币种
+    pub sleep: u64, // 策略频率
 }
 
 pub struct Strategy {
@@ -113,14 +116,14 @@ impl Strategy {
                     if cover_num < config.double_cast {
                         info!("开始补仓！");
                         cover_num += 1;
-                        let buy_in = 2.0 * self.hold_amount;
+                        let buy_in = 2.0f64.powi(cover_num as i32) * config.first_amount;
                         self.hold_amount += buy_in;
                         self.hold_num += buy_in / self.current_amount;
                         cover = false;
                     }
                 }
             }
-            tokio::time::delay_for(Duration::new(5, 0)).await;
+            tokio::time::delay_for(Duration::new(config.sleep.max(1), 0)).await;
         }
         // println!("{}", self.hold_num);
     }
