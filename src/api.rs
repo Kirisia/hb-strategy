@@ -111,7 +111,7 @@ impl HbApi {
         self.http_get("/v1/account/accounts", &HashMap::new()).await
     }
 
-    pub async fn buy_currency(&self, map: &HashMap<&str, String>) -> ResultResponse {
+    pub async fn order_place(&self, map: &HashMap<&str, String>) -> ResultResponse {
         self.http_post("/v1/order/orders/place", map).await
     }
 }

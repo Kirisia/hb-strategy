@@ -7,6 +7,8 @@ use rand::Rng;
 use crate::strategy::{Strategy, StrategyConfig};
 use crate::proto::SendParcel;
 use std::sync::{Arc, RwLock};
+use actix::clock::Duration;
+use std::ops::Deref;
 
 lazy_static! {
     static ref STRATEGY: Arc<RwLock<Strategy>> = Arc::new(RwLock::new(Strategy::new(StrategyConfig::default())));
@@ -17,9 +19,8 @@ lazy_static! {
 pub struct Message(pub String);
 
 pub struct StrategyServer {
-    sessions: HashMap<usize, Recipient<Message>>, // 房间长连接
+    sessions: HashMap<usize, Recipient<Message>>, // 长连接消息通道
     rng: ThreadRng,
-    running: bool,
 }
 
 impl Default for StrategyServer {
@@ -27,7 +28,6 @@ impl Default for StrategyServer {
         Self {
             sessions: HashMap::new(),
             rng: rand::thread_rng(),
-            running: false,
         }
     }
 }
@@ -35,9 +35,12 @@ impl Default for StrategyServer {
 impl StrategyServer {
     fn send_message(&self, message: SendParcel) {
         let message = serde_json::to_string(&message).unwrap();
-        while let Some((_, addr)) = self.sessions.iter().next() {
-            let _ = addr.do_send(Message(message.to_owned()));
+        for (_, addr) in &self.sessions {
+            addr.do_send(Message(message.to_owned()));
         }
+        // while let Some((_, addr)) = self.sessions.iter().next() {
+        //     let _ = addr.do_send(Message(message.to_owned()));
+        // }
     }
 }
 
@@ -84,27 +87,55 @@ impl Handler<StrategyMessage> for StrategyServer {
     type Result = ();
 
     fn handle(&mut self, msg: StrategyMessage, ctx: &mut Context<Self>) -> Self::Result {
-        if self.running {
-            let strategy = (*STRATEGY).read().unwrap();
+        let strategy = (*STRATEGY).read().unwrap();
+        if strategy.is_running {
             self.send_message(SendParcel::StrategyState(strategy.get_state_string()));
             return
         }
         let addr = ctx.address();
         let rule = msg.0;
-        match toml::from_str(&rule) {
-            Ok(config) => {
-                let mut strategy = (*STRATEGY).write().unwrap();
-                strategy.set_config(config);
-                addr.do_send(Frame);
-                actix::spawn(async move {
-                    strategy.run().await;
-                });
+        actix::spawn(async move {
+            match toml::from_str::<StrategyConfig>(&rule) {
+                Ok(config) => {
+                    let mut strategy = (*STRATEGY).write().unwrap();
+                    let sleep = config.sleep;
+                    strategy.set_config(config);
+                    strategy.is_running = true;
+                    strategy.reset().await;
+                    drop(strategy);
+                    loop {
+                        let mut strategy = (*STRATEGY).write().unwrap();
+                        if !strategy.is_running { break }
+                        let profit_amount = strategy.step().await;
+                        if profit_amount >= 0.0 {
+                            addr.do_send(
+                                LogMessage(
+                                    SendParcel::StrategyState(
+                                        format!("策略结束！盈利 = {}", profit_amount)
+                                    )
+                                )
+                            );
+                            break
+                        }
+                        addr.do_send(
+                            LogMessage(
+                                SendParcel::StrategyState(strategy.get_state_string())
+                            )
+                        );
+                        drop(strategy);
+                        actix::clock::delay_for(Duration::new(sleep.max(1), 0)).await;
+                    }
+                }
+                Err(_) => {
+                    addr.do_send(
+                        LogMessage(
+                            SendParcel::ConfigError("加载配置错误！".into())
+                        )
+                    )
+                    // self.send_message(SendParcel::ConfigError("加载配置错误！".into()))
+                }
             }
-            Err(_) => {
-                self.send_message(SendParcel::ConfigError("加载配置错误！".into()))
-            }
-        }
-
+        });
     }
 }
 
@@ -116,7 +147,18 @@ impl Handler<Frame> for StrategyServer {
     type Result = isize;
 
     fn handle(&mut self, msg: Frame, _: &mut Context<Self>) -> Self::Result {
-        // self.strategy.run();
         1
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+struct LogMessage(pub SendParcel);
+
+impl Handler<LogMessage> for StrategyServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: LogMessage, _: &mut Context<Self>) -> Self::Result {
+        self.send_message(msg.0);
     }
 }

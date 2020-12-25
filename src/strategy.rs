@@ -45,7 +45,12 @@ pub struct Strategy {
     current_amount: f64, // 当前价格
     increase_amp: f64, // 涨幅
     profit_per: f64, // 盈利比例
+    is_profit: bool, // 是否盈利
+    high_profit: f64, // 最高盈利
+    is_cover: bool, // 是否需要补仓
+    low_cover: f64, // 最低补仓
     api: HbApi,
+    pub is_running: bool,
 }
 
 impl Strategy {
@@ -59,8 +64,25 @@ impl Strategy {
             increase_amp: 0.0,
             cover_num: 0,
             profit_per: 0.0,
+            is_profit: false,
+            high_profit: 0.0,
+            is_cover: false,
+            low_cover: f64::MAX,
+            is_running: false,
             api: HbApi::new("", "", "api.huobi.pro"),
         }
+    }
+
+    pub async fn reset(&mut self) {
+        let config = &self.config;
+        self.hold_amount = config.first_amount;
+        self.current_amount = self.get_current_price().await;
+        self.hold_num = self.hold_amount / self.current_amount;
+        self.cover_num = 0;
+        self.is_profit = false;
+        self.high_profit = 0.0;
+        self.is_cover = false;
+        self.low_cover = f64::MAX;
     }
 
     pub fn set_config(&mut self, config: StrategyConfig) {
@@ -90,71 +112,69 @@ impl Strategy {
         }
     }
 
-    pub async fn run(&mut self) -> f64 {
-        let config = &self.config;
-        self.hold_amount = config.first_amount;
-        self.current_amount = self.get_current_price().await;
-        self.hold_num = self.hold_amount / self.current_amount;
-        self.cover_num = 0;
-        let (mut profit, mut high_profit, mut cover, mut low_cover )
-            = (false, 0.0, false, f64::MAX);
-        let mut rp = 0.0;
+    pub async fn run(&mut self) {
+        self.reset().await;
         loop {
-            self.current_amount = self.get_current_price().await;
-            self.average_amount = self.hold_amount / self.hold_num;
-            // 判断是否盈利
-            // 盈利比例
-            let profit_per = (self.current_amount - self.average_amount) / self.average_amount;
-            self.profit_per = profit_per;
-            info!(
-                "\n持仓金额 = {}, 持仓均价 = {}, 补仓次数 = {} \n持仓数量 = {}, 当前价格 = {}, 盈利比例 = {}",
-                self.hold_amount, self.average_amount, self.cover_num,
-                self.hold_num, self.current_amount, profit_per
-            );
-
-            if profit_per > config.spr {
-                if profit_per > high_profit {
-                    high_profit = profit_per;
-                }
-                profit = true;
-                cover = false;
-            } else {
-                profit = false;
-            }
-            if profit {
-                if high_profit - profit_per > config.profit_cb {
-                    // 盈利策略结束
-                    let profit_amount = self.current_amount * self.hold_num - self.hold_amount;
-                    rp = profit_amount;
-                    profit_log(format!("策略结束！盈利 = {}", profit_amount));
-                    info!("策略结束！盈利 = {}", profit_amount);
-                    break;
-                }
-            }
-            // 判断是否需要补仓
-            if (self.average_amount - self.current_amount) / self.average_amount > config.cover_decline {
-                if low_cover > self.current_amount {
-                    low_cover = self.current_amount;
-                }
-                cover = true;
-            }
-            if cover {
-                if (self.current_amount - low_cover) / low_cover > config.cover_cb {
-                    // 开始补仓
-                    if self.cover_num < config.double_cast {
-                        info!("开始补仓！");
-                        self.cover_num += 1;
-                        let buy_in = 2.0f64.powi(self.cover_num as i32) * config.first_amount;
-                        self.hold_amount += buy_in;
-                        self.hold_num += buy_in / self.current_amount;
-                        cover = false;
-                    }
-                }
-            }
-            tokio::time::delay_for(Duration::new(config.sleep.max(1), 0)).await;
+            self.step().await;
+            tokio::time::delay_for(Duration::new(self.config.sleep.max(1), 0)).await;
         }
-        rp
         // println!("{}", self.hold_num);
+    }
+
+    pub async fn step(&mut self) -> f64 {
+        let config = &self.config;
+        self.current_amount = self.get_current_price().await;
+        self.average_amount = self.hold_amount / self.hold_num;
+        // 判断是否盈利
+        // 盈利比例
+        let profit_per = (self.current_amount - self.average_amount) / self.average_amount;
+        self.profit_per = profit_per;
+        info!(
+            "\n持仓金额 = {}, 持仓均价 = {}, 补仓次数 = {} \n持仓数量 = {}, 当前价格 = {}, 盈利比例 = {}",
+            self.hold_amount, self.average_amount, self.cover_num,
+            self.hold_num, self.current_amount, profit_per
+        );
+
+        if profit_per > config.spr {
+            if profit_per > self.high_profit {
+                self.high_profit = profit_per;
+            }
+            self.is_profit = true;
+            self.is_cover = false;
+        } else {
+            self.is_profit = false;
+        }
+        if self.is_profit {
+            if self.high_profit - profit_per > config.profit_cb {
+                // 盈利策略结束
+                let profit_amount = self.current_amount * self.hold_num - self.hold_amount;
+                profit_log(format!("策略结束！盈利 = {}", profit_amount));
+                info!("策略结束！盈利 = {}", profit_amount);
+                self.is_running = false;
+                return profit_amount;
+            }
+        }
+        // 判断是否需要补仓
+        if (self.average_amount - self.current_amount) / self.average_amount > config.cover_decline {
+            if self.low_cover > self.current_amount {
+                self.low_cover = self.current_amount;
+            }
+            self.is_cover = true;
+        }
+        if self.is_cover {
+            if (self.current_amount - self.low_cover) / self.low_cover > config.cover_cb {
+                // 开始补仓
+                if self.cover_num < config.double_cast {
+                    info!("开始补仓！");
+                    self.cover_num += 1;
+                    let buy_in = 2.0f64.powi(self.cover_num as i32) * config.first_amount;
+                    self.hold_amount += buy_in;
+                    self.hold_num += buy_in / self.current_amount;
+                    self.is_cover = false;
+                }
+            }
+        }
+        -1.0
     }
 
     pub fn get_state_string(&self) -> String {

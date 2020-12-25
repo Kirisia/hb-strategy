@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+
+</body>
+<script>
+    const socket = new WebSocket('ws://127.0.0.1:8778/ws');
+    socket.addEventListener('open', () => {
+      console.log('连接打开')
+      socket.send(``)
+    })
+    socket.addEventListener('message', (e) => {
+      console.log(e);
+    })
+    socket.addEventListener('close', () => {
+      console.log('结束')
+    })
+</script>
+</html>
