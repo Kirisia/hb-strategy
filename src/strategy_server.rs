@@ -9,6 +9,9 @@ use crate::proto::SendParcel;
 use std::sync::{Arc, RwLock};
 use actix::clock::Duration;
 use std::ops::Deref;
+use log::{info};
+use std::fs::File;
+use std::io::{Seek, SeekFrom, Read};
 
 lazy_static! {
     static ref STRATEGY: Arc<RwLock<Strategy>> = Arc::new(RwLock::new(Strategy::new(StrategyConfig::default())));
@@ -89,7 +92,7 @@ impl Handler<StrategyMessage> for StrategyServer {
     fn handle(&mut self, msg: StrategyMessage, ctx: &mut Context<Self>) -> Self::Result {
         let strategy = (*STRATEGY).read().unwrap();
         if strategy.is_running {
-            self.send_message(SendParcel::StrategyState(strategy.get_state_string()));
+            self.send_message(SendParcel::StrategyState(read_log()));
             return
         }
         let addr = ctx.address();
@@ -102,6 +105,7 @@ impl Handler<StrategyMessage> for StrategyServer {
                     strategy.set_config(config);
                     strategy.is_running = true;
                     strategy.reset().await;
+                    info!("running");
                     drop(strategy);
                     loop {
                         let mut strategy = (*STRATEGY).write().unwrap();
@@ -119,7 +123,7 @@ impl Handler<StrategyMessage> for StrategyServer {
                         }
                         addr.do_send(
                             LogMessage(
-                                SendParcel::StrategyState(strategy.get_state_string())
+                                SendParcel::StrategyState(read_log())
                             )
                         );
                         drop(strategy);
@@ -161,4 +165,33 @@ impl Handler<LogMessage> for StrategyServer {
     fn handle(&mut self, msg: LogMessage, _: &mut Context<Self>) -> Self::Result {
         self.send_message(msg.0);
     }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StopStrategy;
+
+impl Handler<StopStrategy> for StrategyServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: StopStrategy, _: &mut Context<Self>) -> Self::Result {
+        let mut strategy = (*STRATEGY).write().unwrap();
+        strategy.is_running = false;
+        info!("已停止策略!");
+        self.send_message(SendParcel::ConfigError(read_log()));
+    }
+}
+
+fn read_log() -> String {
+    let mut file = File::open("output.log").unwrap();
+    let mut str = String::new();
+    file.read_to_string(&mut str);
+    let mut log = String::new();
+    let mut index = 0;
+    for line in str.lines().rev() {
+        log = format!("{}\n{}", line, log);
+        if index > 30 { break }
+        index += 1;
+    }
+    log
 }

@@ -3,7 +3,8 @@ use actix::{Addr, Actor, AsyncContext, WrapFuture, ActorContext, fut, ActorFutur
 use actix_web_actors::ws::{self, WebsocketContext};
 use actix_http::ws::Codec;
 use std::time::{Instant, Duration};
-use crate::strategy_server::{self as server, StrategyServer, StrategyMessage};
+use crate::strategy_server::{self as server, StrategyServer, StrategyMessage, StopStrategy};
+use serde_json::Value;
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -93,7 +94,18 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWebSocket {
                 self.hb = Instant::now();
             }
             ws::Message::Text(text) => {
-                self.addr.do_send(StrategyMessage(text));
+                let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+                match v["route"].as_u64().unwrap() {
+                    0 => {
+                        self.addr.do_send(StrategyMessage(
+                            v["config"].as_str().unwrap().to_string()
+                        ));
+                    }
+                    1 => {
+                        self.addr.do_send(StopStrategy);
+                    }
+                    _ => {}
+                }
             }
             ws::Message::Binary(bytes) => (),
             ws::Message::Close(reason) => {

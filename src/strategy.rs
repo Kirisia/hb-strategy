@@ -7,6 +7,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use serde::{Deserialize};
 use crate::api::HbApi;
+use std::collections::HashMap;
 
 #[derive(Deserialize, Debug)]
 pub struct StrategyConfig {
@@ -19,6 +20,9 @@ pub struct StrategyConfig {
     pub cover_cb: f64, // 补仓回调
     pub currency: String, // 币种
     pub sleep: u64, // 策略频率
+    pub access_key: String,
+    pub secret_key: String,
+    pub mock: bool, // 是否使用模拟数据
 }
 
 impl Default for StrategyConfig {
@@ -31,7 +35,10 @@ impl Default for StrategyConfig {
             cover_decline: 0.0,
             cover_cb: 0.0,
             currency: "".into(),
-            sleep: 0
+            sleep: 0,
+            mock: true,
+            access_key: "".into(),
+            secret_key: "".into(),
         }
     }
 }
@@ -51,6 +58,7 @@ pub struct Strategy {
     low_cover: f64, // 最低补仓
     api: HbApi,
     pub is_running: bool,
+    account_id: String,
 }
 
 impl Strategy {
@@ -69,15 +77,98 @@ impl Strategy {
             is_cover: false,
             low_cover: f64::MAX,
             is_running: false,
+            account_id: "".into(),
             api: HbApi::new("", "", "api.huobi.pro"),
         }
     }
 
+    pub async fn get_account_id(&mut self) {
+        match self.api.get_accounts().await {
+            Ok(resp) => {
+                let v = resp.json::<Value>().await.unwrap();
+                let arr = v["data"].as_array().unwrap();
+                for v in arr {
+                    if v["type"].as_str().unwrap() == "spot" {
+                        self.account_id = v["id"].as_str().unwrap().to_string();
+                        break
+                    }
+                }
+            },
+            Err(_) => {
+                error!("获取子账号id错误。");
+                panic!("获取子账号id错误")
+            }
+        };
+    }
+
+    pub async fn buy_currency(&mut self, amount: f64) {
+        let mut map: HashMap<&str, String> = HashMap::new();
+        map.insert("account-id", self.account_id.clone());
+        map.insert("symbol", format!("{}usdt", self.config.currency));
+        map.insert("type", "buy-market".into());
+        map.insert("amount", amount.to_string());
+        let order_id = match self.api.order_place(&map).await {
+            Ok(resp) => {
+                let v = resp.json::<Value>().await.unwrap();
+                v["data"].as_str().unwrap().to_string()
+            },
+            Err(_) => {
+                error!("买入失败！");
+                panic!("买币失败");
+            }
+        };
+        let resp = self.api.http_get(
+            format!("/v1/order/orders/{}", order_id), &HashMap::new()
+        )
+            .await
+            .unwrap();
+        let v = resp.json::<Value>().await.unwrap();
+        self.hold_amount += v["data"]["field-cash-amount"].as_f64().unwrap();
+        self.hold_num += v["data"]["field-amount"].as_f64().unwrap();
+    }
+
+    pub async fn sell_currency(&self) -> f64 {
+        let mut map: HashMap<&str, String> = HashMap::new();
+        map.insert("account-id", self.account_id.clone());
+        map.insert("symbol", format!("{}usdt", self.config.currency));
+        map.insert("type", "sell-market".into());
+        map.insert("amount", self.hold_num.to_string());
+        let order_id = match self.api.order_place(&map).await {
+            Ok(resp) => {
+                info!("卖出成功！");
+                let v = resp.json::<Value>().await.unwrap();
+                v["data"].as_str().unwrap().to_string()
+            },
+            Err(_) => {
+                error!("卖出失败！");
+                panic!("卖币失败！");
+            }
+        };
+        let resp = self.api.http_get(
+            format!("/v1/order/orders/{}", order_id), &HashMap::new()
+        )
+            .await
+            .unwrap();
+        let v = resp.json::<Value>().await.unwrap();
+        let amount = v["data"]["field-cash-amount"].as_f64().unwrap();
+        let profit_amount = amount - self.hold_num;
+        profit_log(format!("策略结束！盈利 = {}", profit_amount));
+        info!("策略结束！盈利 = {}", profit_amount);
+        profit_amount
+    }
+
     pub async fn reset(&mut self) {
         let config = &self.config;
-        self.hold_amount = config.first_amount;
+        self.api = HbApi::new(config.access_key.as_str(), config.secret_key.as_str(), "api.huobi.pro");
         self.current_amount = self.get_current_price().await;
-        self.hold_num = self.hold_amount / self.current_amount;
+        if config.mock {
+            self.hold_amount = config.first_amount;
+            self.hold_num = self.hold_amount / self.current_amount;
+        } else {
+            let first_amount = config.first_amount;
+            self.get_account_id().await;
+            self.buy_currency(first_amount).await;
+        }
         self.cover_num = 0;
         self.is_profit = false;
         self.high_profit = 0.0;
@@ -147,11 +238,16 @@ impl Strategy {
         if self.is_profit {
             if self.high_profit - profit_per > config.profit_cb {
                 // 盈利策略结束
-                let profit_amount = self.current_amount * self.hold_num - self.hold_amount;
-                profit_log(format!("策略结束！盈利 = {}", profit_amount));
-                info!("策略结束！盈利 = {}", profit_amount);
-                self.is_running = false;
-                return profit_amount;
+                return if config.mock {
+                    let profit_amount = self.current_amount * self.hold_num - self.hold_amount;
+                    profit_log(format!("策略结束！盈利 = {}", profit_amount));
+                    info!("策略结束！盈利 = {}", profit_amount);
+                    self.is_running = false;
+                    profit_amount
+                } else {
+                    self.is_running = false;
+                    self.sell_currency().await
+                }
             }
         }
         // 判断是否需要补仓
@@ -168,8 +264,12 @@ impl Strategy {
                     info!("开始补仓！");
                     self.cover_num += 1;
                     let buy_in = 2.0f64.powi(self.cover_num as i32) * config.first_amount;
-                    self.hold_amount += buy_in;
-                    self.hold_num += buy_in / self.current_amount;
+                    if config.mock {
+                        self.hold_amount += buy_in;
+                        self.hold_num += buy_in / self.current_amount;
+                    } else {
+                        self.buy_currency(buy_in).await;
+                    }
                     self.is_cover = false;
                 }
             }
@@ -179,7 +279,8 @@ impl Strategy {
 
     pub fn get_state_string(&self) -> String {
         format!(
-            "\n持仓金额 = {}, 持仓均价 = {}, 补仓次数 = {} \n持仓数量 = {}, 当前价格 = {}, 盈利比例 = {}",
+            "{}\n持仓金额 = {}, 持仓均价 = {}, 补仓次数 = {} \n持仓数量 = {}, 当前价格 = {}, 盈利比例 = {}",
+            chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
             self.hold_amount, self.average_amount, self.cover_num,
             self.hold_num, self.current_amount, self.profit_per
         )

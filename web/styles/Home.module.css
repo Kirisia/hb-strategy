@@ -5,7 +5,6 @@
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: black;
 }
 
 .footer {
@@ -130,6 +129,19 @@
 
 .rightBox {
   flex: 1;
+  overflow: hidden;
+  padding: 20px;
+  margin: 20px 0;
+  border: 1px solid #eee;
+  border-left-width: 5px;
+  border-radius: 3px;
+  line-height: 1.75;
+  color: #c7254e;
+  height: 80vh;
+}
+
+.rightBox code {
+  font-family: Monaco, sans-serif;
 }
 
 .textarea {
@@ -139,4 +151,93 @@
   margin-top: 10px;
   height: 500px;
   border: 1px solid #FFFFFF5F;
+}
+
+.code_editor {
+  width: 360px;
+  margin-top: 10px;
+  height: 500px;
+  border: 1px solid #0000005F;
+  font-family: "Monaco", "Fira code", "Fira Mono", monospace;
+  font-size: 12px;
+}
+
+.code_editor textarea {
+  /*caret-color: #eab7b7;*/
+}
+
+.cz {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  width: 100%;
+  padding-right: 20px;
+}
+
+.btnSuccess {
+  color: #fff;
+  background-color: #5cb85c;
+  border-color: #4cae4c;
+}
+.btnSuccess:hover {
+  color: #fff;
+  background-color: #449d44;
+  border-color: #398439;
+}
+
+.btnSuccess:active {
+  outline: 0;
+  -webkit-box-shadow: inset 0 3px 5px rgba(0,0,0,.125);
+  box-shadow: inset 0 3px 5px rgba(0,0,0,.125);
+}
+
+.btnSuccess:focus {
+  outline: 5px auto -webkit-focus-ring-color;
+  outline-offset: -2px;
+}
+
+.danger {
+  color: #fff;
+  background-color: #d9534f;
+  border-color: #d43f3a;
+}
+
+.danger:hover {
+  color: #fff;
+  background-color: #c9302c;
+  border-color: #ac2925;
+}
+
+.danger:active {
+  background-image: none;
+  outline: 0;
+  -webkit-box-shadow: inset 0 3px 5px rgba(0,0,0,.125);
+  box-shadow: inset 0 3px 5px rgba(0,0,0,.125);
+}
+
+.btn[disabled] {
+  opacity: .6;
+}
+
+.btn {
+  display: inline-block;
+  padding: 6px 12px;
+  margin-bottom: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.42857143;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+  -ms-touch-action: manipulation;
+  touch-action: manipulation;
+  cursor: pointer;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  background-image: none;
+  border-radius: 4px;
+  outline: none;
+  border: none;
 }
