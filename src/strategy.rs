@@ -23,6 +23,7 @@ pub struct StrategyConfig {
     pub access_key: String,
     pub secret_key: String,
     pub mock: bool, // 是否使用模拟数据
+    pub re_loop: bool,
 }
 
 impl Default for StrategyConfig {
@@ -37,6 +38,7 @@ impl Default for StrategyConfig {
             currency: "".into(),
             sleep: 0,
             mock: true,
+            re_loop: false,
             access_key: "".into(),
             secret_key: "".into(),
         }
@@ -206,7 +208,9 @@ impl Strategy {
     pub async fn run(&mut self) {
         self.reset().await;
         loop {
-            self.step().await;
+            if self.step().await >= 0.0 {
+                break
+            }
             tokio::time::delay_for(Duration::new(self.config.sleep.max(1), 0)).await;
         }
         // println!("{}", self.hold_num);
